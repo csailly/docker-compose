@@ -1,0 +1,6 @@
+kafka/data
+kafka/secrets/*
+!kafka/secrets/.gitkeep
+
+.DS_Store
+_old

@@ -1,0 +1,115 @@
+version: '3.8'
+services:
+
+  mongodb-rs1:
+    image: mongo:7.0
+    hostname: mongodb-rs1
+    restart: always
+    container_name: mongodb-rs1
+    command:
+      [
+        "--replSet",
+        "mongodb-rs",
+        "--bind_ip_all",
+        "--port",
+        "27017"
+      ]
+    ports:
+      - 27017:27017
+    # ports:
+    #   - '27017:27017'
+    #   - '27018:27018'
+    #   - '27019:27019'
+    #   - '28017:28017'
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    expose:
+      - '27017-27019'
+      - '28017'
+    networks:
+      - mongo-network
+    volumes:
+      - mongodb_data_db:/data/db
+      - mongodb_data_configdb:/data/configdb
+    healthcheck:
+      # test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'mongodb-rs',members:[{_id:0,host:'host.docker.internal:27017'}]}) }" | mongosh --port 27017 --quiet
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'mongodb-rs',members:[{_id:0,host:'localhost:27017'}]}) }" | mongosh --port 27017 --quiet
+      interval: 5s
+      timeout: 30s
+      start_period: 0s
+      start_interval: 1s
+      retries: 30
+
+  # https://docs.confluent.io/platform/current/installation/docker/config-reference.html#zk-configuration
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.1
+    # container_name: zookeeper
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 22181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: ERROR
+      ZOOKEEPER_LOG4J_LOGLEVEL: ERROR
+      KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/zookeeper_server_jaas.conf -Dzookeeper.authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider -Dzookeeper.allowSaslFailedClients=false -Dzookeeper.requireClientAuthScheme=sasl
+    volumes:
+      - ./kafka/zookeeper_server_jaas.conf:/etc/kafka/zookeeper_server_jaas.conf
+      - zookeeper_secrets:/etc/zookeeper/secrets
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.1
+    # container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - '9092:9092'
+      - '9093:9093'
+    environment:
+      # KAFKA_LOG4J_ROOT_LOGLEVEL: ERROR
+      # KAFKA_LOG4J_LOGLEVEL: ERROR
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:22181
+
+      #-----------------------Authentication--------------------------
+      # List of enabled mechanisms, can be more than one
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      # Specify one of of the SASL mechanisms
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+
+      # Tell the Kafka brokers on which ports to listen for client and interbroker SASL connections.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,SASL_SSL://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,SASL_SSL://localhost:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_SSL_KEYSTORE_FILENAME: broker.keystore.jks
+      KAFKA_SSL_KEY_CREDENTIALS: cert_creds
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: cert_creds
+
+      #----------------------------------------------------------------
+
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      CONFLUENT_METRICS_ENABLE: "false"
+      CONFLUENT_SUPPORT_CUSTOMER_ID: anonymous
+      KAFKA_OPTS: '-Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf'
+    volumes:
+      - ./kafka/kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf
+      - ./kafka/secrets:/etc/kafka/secrets
+      - ./kafka/data:/var/lib/kafka/data
+
+networks:
+  mongo-network:
+    driver: bridge
+
+volumes:
+  mongodb_data_configdb:
+    external: true
+  mongodb_data_db:
+    external: true
+  zookeeper_secrets:
+  zookeeper_data:
+  zookeeper_log:
